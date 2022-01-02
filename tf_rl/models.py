@@ -1,7 +1,12 @@
 import math
 import tensorflow as tf
 
-from .utils import base_name
+tf = tf.compat.v1
+
+
+def base_name(var):
+    """Extracts value passed to name= when creating a variable"""
+    return var.name.split('/')[-1].split(':')[0]
 
 
 class Layer(object):

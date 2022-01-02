@@ -9,6 +9,14 @@ from os.path import join, exists
 from os import makedirs
 from IPython.display import clear_output, display, HTML
 
+import pygame
+
+WHITE=(255,255,255)
+RED=(255,0,0)
+GREEN=(0,255,0)
+BLUE=(0,0,255)
+BLACK=(0,0,0)
+
 def simulate(simulation,
              controller= None,
              fps=60,
@@ -123,3 +131,98 @@ def simulate(simulation,
         time_passed = (time.time() - simulation_started_time)
         if wait and (time_should_have_passed > time_passed):
             time.sleep(time_should_have_passed - time_passed)
+
+def simulate2(simulation,
+             controller= None,
+             fps=60,
+             visualize_every=1,
+             action_every=1,
+             simulation_resolution=None,
+             wait=False,
+             disable_training=False,
+             save_path=None):
+    
+    # calculate simulation times
+    chunks_per_frame = 1
+    chunk_length_s   = 1.0 / fps
+
+    if simulation_resolution is not None:
+        frame_length_s = 1.0 / fps
+        chunks_per_frame = int(math.ceil(frame_length_s / simulation_resolution))
+        chunks_per_frame = max(chunks_per_frame, 1)
+        chunk_length_s = frame_length_s / chunks_per_frame
+
+    last_observation = None
+    last_action      = None
+
+    pygame.init()
+    pygame.font.init()
+    pygame.mixer.init()
+
+
+    screen_start_point = (10,10)
+    screen_size = (2*screen_start_point[0]+simulation.size[0],2*screen_start_point[1]+simulation.size[1]+200)
+    screen = pygame.display.set_mode(screen_size)
+    pygame.display.set_caption("Game")
+    clock = pygame.time.Clock()
+
+    running = True
+    frame_no = 0
+    while running:
+        screen.fill(WHITE)
+        # Держим цикл на правильной скорости        
+
+        for _ in range(chunks_per_frame):
+            simulation.step(chunk_length_s)
+        
+        if frame_no % action_every == 0:
+            new_observation = simulation.observe()
+            reward          = simulation.collect_reward()
+            # store last transition
+            if last_observation is not None:
+                controller.store(last_observation, last_action, reward, new_observation)
+            
+            
+
+            #act
+            action = None
+            if (controller==[]):
+                for i in pygame.event.get():
+                    if i.type == pygame.KEYDOWN:
+                        if i.key == pygame.K_RIGHT:
+                            action=0
+                        elif i.key == pygame.K_DOWN:
+                            action=1
+                        elif i.key == pygame.K_LEFT:
+                            action=2
+                        elif i.key == pygame.K_UP:
+                            action=3
+            else:
+                action = controller.action(new_observation)
+            if (action!=None):
+                simulation.perform_action(action)
+
+            #train
+            if not disable_training:
+                controller.training_step()
+
+            # update current state as last state.
+            last_action = action
+            last_observation = new_observation
+
+        frame_no+=1
+        
+        #draw
+        stats = []
+        simulation.to_pygame_screen(screen,screen_start_point,[])
+
+        clock.tick(fps)
+        pygame.display.flip()
+        # Ввод процесса (события)
+        for event in pygame.event.get():
+            # check for closing window
+            if event.type == pygame.QUIT:
+                running = False
+
+    pygame.quit()
+    pass

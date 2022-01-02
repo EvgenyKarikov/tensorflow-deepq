@@ -10,6 +10,16 @@ from euclid import Circle, Point2, Vector2, LineSegment2
 from ..utils import svg
 from IPython.display import clear_output, display, HTML
 
+import pygame
+WHITE=(255,255,255)
+RED=(255,0,0)
+GREEN=(0,255,0)
+BLUE=(0,0,255)
+BLACK=(0,0,0)
+YELLOW=(255,255, 0)
+
+clrs = {'white': WHITE,'red': (255,0,0), 'green': GREEN, 'blue': BLUE, 'black': BLACK, 'yellow': YELLOW}
+
 class GameObject(object):
     def __init__(self, position, speed, obj_type, settings):
         """Esentially represents circles of different kinds, which have
@@ -45,10 +55,13 @@ class GameObject(object):
     def as_circle(self):
         return Circle(self.position, float(self.radius))
 
-    def draw(self):
+    def draw(self,screen,screen_start_point):
+        center = (screen_start_point[0]+self.position[0],screen_start_point[1]+self.position[1])
+        pygame.draw.circle(screen,clrs[self.settings["colors"][self.obj_type]],center,self.radius)
+
         """Return svg object for this item."""
-        color = self.settings["colors"][self.obj_type]
-        return svg.Circle(self.position + Point2(10, 10), self.radius, color=color)
+        #color = self.settings["colors"][self.obj_type]
+        #return svg.Circle(self.position + Point2(10, 10), self.radius, color=color)
 
 class KarpathyGame(object):
     def __init__(self, settings):
@@ -82,6 +95,7 @@ class KarpathyGame(object):
         self.eye_observation_size = len(self.settings["objects"]) + 3
         # additionally there are two numbers representing agents own speed and position.
         self.observation_size = self.eye_observation_size * len(self.observation_lines) + 2 + 2
+        self.last_observation = np.zeros(self.observation_size)
 
         self.directions = [Vector2(*d) for d in [[1,0], [0,1], [-1,0],[0,-1],[0.0,0.0]]]
         self.num_actions      = len(self.directions)
@@ -218,7 +232,7 @@ class KarpathyGame(object):
         observation[observation_offset + 1] = self.hero.position[1] / 250.0 - 1.0
         
         assert observation_offset + 2 == self.observation_size
-
+        self.last_observation = observation            
         return observation
 
     def distance_to_walls(self):
@@ -266,6 +280,55 @@ class KarpathyGame(object):
 
     def _repr_html_(self):
         return self.to_html()
+
+    def to_pygame_screen(self,screen,screen_start_point, stats=[]):   
+        x0 = screen_start_point[0]
+        y0 = screen_start_point[1]
+
+        stats = stats[:]
+        recent_reward = self.collected_rewards[-100:] + [0]
+        objects_eaten_str = ', '.join(
+            ["%s: %s" % (o, c) for o, c in self.objects_eaten.items()])
+        stats.extend([
+            "nearest wall = %.1f" % (self.distance_to_walls(),),
+            "reward       = %.5f" % (sum(recent_reward)/len(recent_reward),),
+            "objects eaten => %s" % (objects_eaten_str,),
+        ])
+
+        pygame.draw.rect(screen,(0,0,0),(x0,y0,self.size[0],self.size[1]),width=2)        
+
+        num_obj_types = len(self.settings["objects"]) + 1  # and wall
+        observation_offset = 0
+        for line in self.observation_lines:
+            # getting color of the line
+            linecolor = 'black'
+            linewidth = 1            
+            for object_type_idx_loop in range(num_obj_types):
+                if self.last_observation[observation_offset + object_type_idx_loop] < 1.0:
+                    if object_type_idx_loop < num_obj_types - 1:
+                        linecolor = self.settings["colors"][self.settings["objects"]
+                                                            [object_type_idx_loop]]
+                    linewidth = 3
+
+            observation_offset += self.eye_observation_size
+
+            st_x = x0+line.p1[0]+self.hero.position[0]
+            st_y = y0+line.p1[1]+self.hero.position[1]
+
+            end_x = x0+line.p2[0]+self.hero.position[0]
+            end_y = y0+line.p2[1]+self.hero.position[1]
+
+            pygame.draw.line(screen, clrs[linecolor],(st_x,st_y),(end_x,end_y),linewidth)
+        
+        for obj in self.objects + [self.hero]:
+            obj.draw(screen,screen_start_point)    
+
+        offset = self.size[1] + 15
+        myfont = pygame.font.SysFont('Arial',12)
+        for txt in stats:
+            txt_render = myfont.render(txt,True,BLACK)
+            screen.blit(txt_render,(x0+10,y0+offset+20))                        
+            offset += 20
 
     def to_html(self, stats=[]):
         """Return svg representation of the simulator"""
